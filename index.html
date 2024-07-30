@@ -1,0 +1,248 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Interactive Solar System with Updated Textures</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        #solar-system {
+            width: 100%;
+            height: 100%;
+        }
+
+        #instructions {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+<div id="solar-system"></div>
+<div id="instructions">
+    WASD: Move | Mouse: Look | Space/Shift: Up/Down
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+<script>
+    class SolarSystem {
+        constructor(containerId) {
+            this.container = document.getElementById(containerId);
+            this.scene = new THREE.Scene();
+            this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 20000);
+            this.renderer = new THREE.WebGLRenderer({antialias: true});
+            this.planets = [];
+            this.controls = {
+                movementSpeed: 10,
+                lookSpeed: 0.005
+            };
+
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            this.container.appendChild(this.renderer.domElement);
+
+            window.addEventListener('resize', () => this.onWindowResize(), false);
+
+            this.setupGUI();
+            this.setupControls();
+            this.loadTextures();
+        }
+
+        setupGUI() {
+            const gui = new dat.GUI();
+            gui.add(this.controls, 'movementSpeed', 1, 50);
+            gui.add(this.controls, 'lookSpeed', 0.001, 0.01);
+        }
+
+        setupControls() {
+            this.keys = {};
+            this.mouseDown = false;
+            this.mousePrevPosition = {x: 0, y: 0};
+
+            document.addEventListener('keydown', (e) => this.keys[e.code] = true);
+            document.addEventListener('keyup', (e) => this.keys[e.code] = false);
+            document.addEventListener('mousedown', (e) => {
+                this.mouseDown = true;
+                this.mousePrevPosition = {x: e.clientX, y: e.clientY};
+            });
+            document.addEventListener('mouseup', () => this.mouseDown = false);
+            document.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+        }
+
+        handleMouseMove(e) {
+            if (this.mouseDown) {
+                const deltaX = e.clientX - this.mousePrevPosition.x;
+                const deltaY = e.clientY - this.mousePrevPosition.y;
+
+                this.camera.rotation.y -= deltaX * this.controls.lookSpeed;
+                this.camera.rotation.x -= deltaY * this.controls.lookSpeed;
+
+                this.mousePrevPosition = {x: e.clientX, y: e.clientY};
+            }
+        }
+
+        loadTextures() {
+            const loader = new THREE.TextureLoader();
+            this.textures = {
+                sun: loader.load('/textures/2k_sun.jpg'),
+                mercury: loader.load('/textures/2k_mercury.jpg'),
+                venus: loader.load('/textures/2k_venus_surface.jpg'),
+                earth: loader.load('/textures/2k_earth_daymap.jpg'),
+                mars: loader.load('/textures/2k_mars.jpg'),
+                jupiter: loader.load('/textures/2k_jupiter.jpg'),
+                moon: loader.load('/textures/2k_moon.jpg')
+            };
+        }
+
+        init() {
+            this.createLights();
+            this.createSun();
+            this.createPlanets();
+            this.createDistantStars();
+
+            this.camera.position.z = 500;
+        }
+
+        createLights() {
+            const ambientLight = new THREE.AmbientLight(0x333333);
+            this.scene.add(ambientLight);
+
+            this.sunLight = new THREE.PointLight(0xffffff, 2, 0, 2);
+            this.scene.add(this.sunLight);
+        }
+
+        createSun() {
+            const sunGeometry = new THREE.SphereGeometry(50, 64, 64);
+            const sunMaterial = new THREE.MeshBasicMaterial({map: this.textures.sun});
+            this.sun = new THREE.Mesh(sunGeometry, sunMaterial);
+            this.scene.add(this.sun);
+        }
+
+        createPlanets() {
+            const planetData = [
+                {name: 'Mercury', distance: 120, size: 5, texture: this.textures.mercury, orbitPeriod: 5, moons: 0},
+                {name: 'Venus', distance: 160, size: 7.5, texture: this.textures.venus, orbitPeriod: 8, moons: 0},
+                {name: 'Earth', distance: 200, size: 8, texture: this.textures.earth, orbitPeriod: 10, moons: 1},
+                {name: 'Mars', distance: 240, size: 6, texture: this.textures.mars, orbitPeriod: 15, moons: 2},
+                {name: 'Jupiter', distance: 320, size: 18, texture: this.textures.jupiter, orbitPeriod: 20, moons: 4},
+            ];
+
+            planetData.forEach(data => {
+                const planet = this.createCelestialBody(data.size, data.texture);
+                planet.position.x = data.distance;
+                this.scene.add(planet);
+
+                const orbitGeometry = new THREE.RingGeometry(data.distance - 0.5, data.distance + 0.5, 64);
+                const orbitMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xffffff,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0.1
+                });
+                const orbit = new THREE.Mesh(orbitGeometry, orbitMaterial);
+                orbit.rotation.x = Math.PI / 2;
+                this.scene.add(orbit);
+
+                this.planets.push({mesh: planet, data: data});
+
+                for (let i = 0; i < data.moons; i++) {
+                    const moonDistance = data.size + 5 + (i * 5);
+                    const moonSize = 2;
+                    const moon = this.createCelestialBody(moonSize, this.textures.moon);
+                    planet.add(moon);
+                    moon.position.x = moonDistance;
+                }
+            });
+        }
+
+        createCelestialBody(size, texture) {
+            const geometry = new THREE.SphereGeometry(size, 32, 32);
+            const material = new THREE.MeshPhongMaterial({map: texture});
+            return new THREE.Mesh(geometry, material);
+        }
+
+        createDistantStars() {
+            const starsGeometry = new THREE.BufferGeometry();
+            const starsMaterial = new THREE.PointsMaterial({color: 0xFFFFFF, size: 2});
+
+            const starsVertices = [];
+            for (let i = 0; i < 10000; i++) {
+                const x = THREE.MathUtils.randFloatSpread(20000);
+                const y = THREE.MathUtils.randFloatSpread(20000);
+                const z = THREE.MathUtils.randFloatSpread(20000);
+                const distance = Math.sqrt(x * x + y * y + z * z);
+                if (distance > 5000) {
+                    starsVertices.push(x, y, z);
+                }
+            }
+
+            starsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starsVertices, 3));
+            const starField = new THREE.Points(starsGeometry, starsMaterial);
+            this.scene.add(starField);
+        }
+
+        update() {
+            const time = Date.now() * 0.001;
+
+            this.planets.forEach(planet => {
+                const angle = time / planet.data.orbitPeriod;
+                planet.mesh.position.x = Math.cos(angle) * planet.data.distance;
+                planet.mesh.position.z = Math.sin(angle) * planet.data.distance;
+
+                planet.mesh.children.forEach((moon, index) => {
+                    const moonAngle = time / (planet.data.orbitPeriod / (index + 2)) * 5;
+                    moon.position.x = Math.cos(moonAngle) * (planet.data.size + 5 + (index * 5));
+                    moon.position.z = Math.sin(moonAngle) * (planet.data.size + 5 + (index * 5));
+                });
+            });
+
+            this.handleKeyboardInput();
+
+            this.renderer.render(this.scene, this.camera);
+        }
+
+        handleKeyboardInput() {
+            const moveSpeed = this.controls.movementSpeed;
+            if (this.keys['KeyW']) this.camera.translateZ(-moveSpeed);
+            if (this.keys['KeyS']) this.camera.translateZ(moveSpeed);
+            if (this.keys['KeyA']) this.camera.translateX(-moveSpeed);
+            if (this.keys['KeyD']) this.camera.translateX(moveSpeed);
+            if (this.keys['Space']) this.camera.translateY(moveSpeed);
+            if (this.keys['ShiftLeft']) this.camera.translateY(-moveSpeed);
+        }
+
+        onWindowResize() {
+            this.camera.aspect = window.innerWidth / window.innerHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    }
+
+    // Initialize and animate
+    document.addEventListener('DOMContentLoaded', () => {
+        const solarSystem = new SolarSystem('solar-system');
+        solarSystem.init();
+
+        function animate() {
+            solarSystem.update();
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    });
+</script>
+</body>
+</html>
